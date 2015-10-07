@@ -10,6 +10,7 @@ module Web.Scotty.Auth(
 import Web.Scotty.Auth.Types
 import Web.Scotty.Auth.Instances
 
+import Control.Exception (SomeException, handle)
 import Control.Monad.Trans
 import Crypto.Cipher.AES
 import Data.Aeson
@@ -33,19 +34,21 @@ setAuthToken auth expiryUTC tok = do
    
 authRequired :: Token t => Auth -> ActionM () -> (t -> ActionM ()) -> ActionM ()
 authRequired auth authFailed f = do 
-    mtok <- resolveToken auth
+    mtok <- resolveTokenSafe auth
     maybe authFailed f mtok
 
 authOptional :: Token t => Auth -> (Maybe t -> ActionM ()) -> ActionM ()   
-authOptional auth f = resolveToken auth >>= f
+authOptional auth f = resolveTokenSafe auth >>= f
     
-resolveToken :: Token t => Auth -> ActionM (Maybe t)
-resolveToken auth = do 
+resolveTokenSafe :: Token t => Auth -> ActionM (Maybe t)
+resolveTokenSafe auth = do 
     tokH <- fmap (fmap $ B.pack . T.unpack) (header $ authHeader auth)
-    let mtok = tokH >>= decryptToken auth
-    maybe (return Nothing) resolveCheckExpiry mtok
+    liftIO $ handleSome (\_ -> return Nothing) (resolveToken auth tokH)
     
-resolveCheckExpiry :: Token t => AuthToken t -> ActionM (Maybe t)
+resolveToken :: Token t => Auth -> Maybe (B.ByteString) -> IO (Maybe t)
+resolveToken auth tokH = maybe (return Nothing) resolveCheckExpiry (tokH >>= decryptToken auth)
+    
+resolveCheckExpiry :: Token t => AuthToken t -> IO (Maybe t)
 resolveCheckExpiry (AuthToken e t) = do 
     tme <- liftIO $ fmap round getPOSIXTime
     case e > tme of 
@@ -74,7 +77,8 @@ decrypt aes input
 	where 
 	unpad ct = BS.drop (fromIntegral $ BS.head ct) ct
 
-
+handleSome :: (SomeException -> IO a) -> IO a -> IO a
+handleSome = handle
 
 
 
