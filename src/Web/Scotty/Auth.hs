@@ -26,11 +26,12 @@ createAuth :: String -> String -> Auth
 createAuth hexkey authHeader = Auth aes (T.pack authHeader)
     where aes = initAES $ fst (B16.decode $ B.pack hexkey)
 
-setAuthToken :: Token t => Auth -> Int -> t -> ActionM ()
+setAuthToken :: Token t => Auth -> Int -> t -> ActionM T.Text
 setAuthToken auth expiryUTC tok = do 
     let headerName = authHeader auth
     let at16 = T.pack . B.unpack . encryptToken auth $ AuthToken expiryUTC tok
     addHeader headerName at16
+    return at16
    
 authRequired :: Token t => Auth -> ActionM () -> (t -> ActionM ()) -> ActionM ()
 authRequired auth authFailed f = do 
